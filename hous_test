@@ -1,0 +1,62 @@
+import pandas as pd
+from concurrent.futures import ThreadPoolExecutor
+from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.common.by import By
+from bs4 import BeautifulSoup
+import undetected_chromedriver as uc
+import time
+
+# Define a function to process a single URL
+def process_url(url):
+    driver = uc.Chrome()
+    driver.set_window_size(1000, 1000) # устанавливаем окно на 1000 и 1000 пикселей
+    driver.get(url)
+    try:
+        element = driver.find_element(By.ID, 'px-captcha') # находим кнопку капчи
+        actions = ActionChains(driver)
+        actions.move_by_offset(100, 100).click().perform() # нажимаем куда-нибудь
+        time.sleep(12)
+        left_offset = 120 # левый край кнопки в пикселях
+        actions.move_to_element_with_offset(element, left_offset, 0).click_and_hold().perform() # наводим мышь на левый край и удерживаем кнопку
+        time.sleep(10)
+        driver.get(url)
+    except:
+        soup = BeautifulSoup(driver.page_source, "lxml")
+        name = soup.find("h1").getText(strip=True, separator=" ").strip()
+        date = soup.find("time").getText(strip=True, separator=" ").strip()
+
+        desc_sh_full = ""
+        desc = soup.find("article", attrs={"class": "rel"})
+        if desc:
+            desc = desc.find_all(["p"])
+            for d in desc:
+                d_text = d.get_text(strip=True, separator=" ")
+                if d_text and d_text not in desc_sh_full:
+                    desc_sh_full += d_text + "\n"
+
+        obj = {
+            "_url": url,
+            "name": name,
+            "date": date,
+            "desc": desc_sh_full,
+        }
+        print(obj)
+        driver.quit()
+        return obj
+
+# Read URLs from the Excel file
+df = pd.read_excel('links.xlsx')
+
+# Process URLs concurrently with 5 workers
+objects_list = []
+with ThreadPoolExecutor(max_workers=5) as executor:
+    results = executor.map(process_url, df['URL'])
+
+    for result in results:
+        objects_list.append(result)
+
+# Convert the list of objects to a DataFrame
+df_objects = pd.DataFrame(objects_list)
+
+# Save the processed data to an Excel file
+df_objects.to_excel("output.xlsx", index=False)
